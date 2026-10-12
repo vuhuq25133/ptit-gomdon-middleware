@@ -1,0 +1,16 @@
+{
+  "object": "page",
+  "entry": [{
+    "id": "PAGE_100234567",
+    "time": 1728211300,
+    "messaging": [{
+      "sender": {"id": "PSID_99887766"},
+      "recipient": {"id": "PAGE_100234567"},
+      "timestamp": 1728211300,
+      "message": {
+        "mid": "mid.m-123456789abcdef",
+        "text": "Mình đặt 1 quần bò size 31, sđt 0905111222, đc: 45 Lê Duẩn, Đà Nẵng nhé"
+      }
+    }]
+  }]
+}

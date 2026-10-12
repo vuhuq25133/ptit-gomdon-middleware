@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  # 1. Cơ sở dữ liệu chính & Kho gom đơn Lakehouse (~180MB RAM)
+  postgres:
+    image: postgres:16-alpine
+    container_name: gomdon_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gomdon_lakehouse
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: StrongPassword@2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  # 2. Khóa chống trùng Dedup & Cache Micro-second (~40MB RAM)
+  redis:
+    image: redis:7-alpine
+    container_name: gomdon_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass RedisPass@2026
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+
+  # 3. Message Broker AMQP Doanh nghiệp & Web Dashboard (~280MB RAM)
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: gomdon_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: RabbitAdmin@2026
+    ports:
+      - "5672:5672" # Cổng AMQP cho code kết nối
+      - "15672:15672" # Cổng Web UI quản lý trực quan
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+  # Web UI trực quan cho PostgreSQL (~15MB RAM)
+  pgweb:
+    image: sosedoff/pgweb:latest
+    container_name: gomdon_pgweb
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=postgres://postgres:StrongPassword@2026@postgres:5432/gomdon_lakehouse?sslmode=disable
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
+  redisdata:
+  rabbitdata:

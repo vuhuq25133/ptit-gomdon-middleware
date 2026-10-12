@@ -1,0 +1,53 @@
+# ==============================================================================
+# GITIGNORE - HỆ THỐNG GOM ĐƠN ĐA NỀN TẢNG (ĐỒ ÁN TỐT NGHIỆP PTIT)
+# ==============================================================================
+
+# 1. Thư mục tài liệu tham khảo cũ không cần đẩy lên repo
+documents/tài liệu kafka/
+**/tài liệu kafka/
+other/
+
+# 2. File thực thi binary lớn (Không đẩy file exe lên Git)
+tools/*.exe
+tools/cloudflared.exe
+*.exe
+*.dll
+*.bin
+
+# 3. Môi trường ảo Python (Virtual Environments)
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
+
+# 4. Bytecode & Cache Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+
+# 5. Thông tin bảo mật & Mật khẩu (.env thật)
+**/.env
+*.env.local
+*.env.*.local
+# (Chỉ commit file mẫu .env.example)
+!**/.env.example
+
+# 6. File code tạm / POC ban đầu
+# middleware/main_poc.py
+
+# 7. File rác hệ điều hành Windows / macOS
+desktop.ini
+Thumbs.db
+.DS_Store
+$RECYCLE.BIN/
+
+# 8. Cấu hình Editor & Nhật ký công cụ
+.vscode/
+.idea/
+*.swp
+*.swo
+*.log
+**/data/
+**/uploads/
+

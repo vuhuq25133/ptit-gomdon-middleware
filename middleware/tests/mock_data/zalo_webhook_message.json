@@ -1,0 +1,16 @@
+{
+  "app_id": "1234567890987654",
+  "user_id_by_app": "ZALO_UID_889900",
+  "event_name": "user_send_text",
+  "timestamp": "1728211400000",
+  "sender": {
+    "id": "ZALO_UID_889900"
+  },
+  "recipient": {
+    "id": "OA_ID_334455"
+  },
+  "message": {
+    "msg_id": "zalo_msg_778899",
+    "text": "Mình vừa ck cọc đơn áo trắng, ship về 88 Nguyễn Huệ Q1 HCM sđt 0938889999"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "shop_id": 998811,
+  "order_sn": "241006ABC9988XYZ",
+  "order_status": "READY_TO_SHIP",
+  "buyer_user": {
+    "name": "Lê Hoàng Long",
+    "phone": "0977665544"
+  },
+  "recipient_address": {
+    "full_address": "Khu đô thị Văn Quán, Hà Đông, Hà Nội",
+    "city": "Hà Nội"
+  },
+  "item_list": [
+    {
+      "item_id": 11223344,
+      "model_id": 5566,
+      "item_sku": "SP-AO-DEN-L",
+      "model_quantity_purchased": 1,
+      "model_discounted_price": 239000
+    }
+  ],
+  "total_amount": 239000
+}
