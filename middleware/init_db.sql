@@ -6,6 +6,7 @@
 
 -- 1. TẦNG BRONZE: KHO HỨNG THÔ (RAW LAKEHOUSE INGESTION)
 -- Lưu trữ nguyên si JSON payload của mọi kênh (Landing Page, FB, Zalo, Shopee...)
+-- Quy tắc Idempotency: UNIQUE (source_channel, source_order_id) chống trùng lặp sự kiện Webhook
 CREATE TABLE IF NOT EXISTS raw_orders (
     id BIGSERIAL PRIMARY KEY,
     source_channel VARCHAR(50) NOT NULL,            -- landing_page, facebook_comment, facebook_message, zalo, shopee...
@@ -13,7 +14,8 @@ CREATE TABLE IF NOT EXISTS raw_orders (
     raw_payload JSONB NOT NULL,                     -- JSON nguyên bản không qua chỉnh sửa
     process_status VARCHAR(30) DEFAULT 'pending',   -- pending, processed, failed
     error_message TEXT,
-    ingested_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    ingested_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT uq_raw_orders_channel_source_id UNIQUE (source_channel, source_order_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_raw_orders_channel ON raw_orders(source_channel);
@@ -59,7 +61,8 @@ CREATE TABLE IF NOT EXISTS orders (
     raw_order_id BIGINT REFERENCES raw_orders(id),  -- Liên kết ngược vết về Tầng Bronze
     note TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT uq_orders_channel_source_id UNIQUE (source_channel, source_order_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -81,8 +84,12 @@ CREATE TABLE IF NOT EXISTS conversations (
     channel VARCHAR(50) NOT NULL,                   -- facebook, zalo
     channel_conversation_id VARCHAR(100) NOT NULL,
     customer_id INT REFERENCES customers(id),
+    sender_name VARCHAR(255),                       -- Nickname Facebook / Zalo (lấy từ Graph API)
+    sender_avatar TEXT,                             -- URL avatar người nhắn
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS sender_name VARCHAR(255);
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS sender_avatar TEXT;
 
 CREATE TABLE IF NOT EXISTS messages (
     id SERIAL PRIMARY KEY,

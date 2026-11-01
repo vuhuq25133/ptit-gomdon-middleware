@@ -3,8 +3,8 @@
 # ==============================================================================
 
 # 1. Thư mục tài liệu tham khảo cũ không cần đẩy lên repo
-documents/tài liệu kafka/
-**/tài liệu kafka/
+documents/
+
 other/
 
 # 2. File thực thi binary lớn (Không đẩy file exe lên Git)

@@ -11,7 +11,8 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.core.rabbitmq_client import init_rabbitmq_topology
+from app.core.database import get_db_pool
+from app.core.rabbitmq_client import init_rabbitmq_topology, replay_dlq_messages
 from app.api.inbound import router as inbound_router
 
 app = FastAPI(
@@ -30,7 +31,13 @@ app.include_router(inbound_router)
 
 @app.on_event("startup")
 def on_startup():
-    print("[*] Đang kiểm tra và khởi tạo hạ tầng hàng đợi RabbitMQ...")
+    print("[*] Đang kiểm tra và khởi tạo hạ tầng PostgreSQL Pool & RabbitMQ...")
+    try:
+        get_db_pool()
+        print("[+] Hồ chứa kết nối PostgreSQL (ThreadedConnectionPool) đã sẵn sàng!")
+    except Exception as e:
+        print(f"[-] Cảnh báo: Chưa thể khởi tạo PostgreSQL Pool ({e})")
+
     try:
         init_rabbitmq_topology()
         print("[+] Hạ tầng RabbitMQ (Exchange & Queue) đã sẵn sàng!")
@@ -49,6 +56,20 @@ def health_check():
         "service": settings.APP_NAME,
         "version": "2.0.0",
         "lakehouse_status": "connected"
+    }
+
+
+@app.post("/admin/dlq/replay", tags=["Admin - Quản trị Hàng đợi Lỗi (DLQ)"])
+def admin_replay_dlq():
+    """
+    Phục hồi hàng loạt (Batch Replay) toàn bộ các đơn/tin nhắn đang nằm trong kho lỗi
+    `orders.dlq.queue` quay trở lại hàng đợi chính `orders.inbound.queue` sau khi khắc phục sự cố.
+    """
+    result = replay_dlq_messages()
+    return {
+        "status": "success",
+        "message": f"Đã đẩy thành công {result['replayed_count']} gói tin từ DLQ về lại hàng đợi chính!",
+        "data": result
     }
 
 if __name__ == "__main__":
