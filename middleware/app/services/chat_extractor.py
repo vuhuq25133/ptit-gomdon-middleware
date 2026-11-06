@@ -123,7 +123,7 @@ def extract_address(text: str, detected_phone: Optional[str] = None) -> Tuple[Op
     # Các từ khóa nhận diện bắt đầu đoạn địa chỉ
     address_prefixes = [
         r"(?:đ/c|đc|địa chỉ|dia chi)\s*[:：\-]?\s*",
-        r"(?:ship\s*(?:đến|về|qua)|gửi\s*(?:đến|về|qua)|giao\s*(?:đến|về|qua))\s*[:：\-]?\s*",
+        r"(?:ship\s*(?:đến|về|qua)|gửi\s*(?:đến|về|qua)|giao\s*(?:đến|về|qua)?)\s*[:：\-]?\s*",
         r"\b(?:về|ve)\s+([A-Za-z0-9]+[/\w\s,]+)",
     ]
 

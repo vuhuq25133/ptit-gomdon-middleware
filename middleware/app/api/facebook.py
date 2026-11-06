@@ -155,3 +155,16 @@ async def receive_facebook_webhook(payload: FacebookWebhookPayload):
         processed_messages=processed_count,
         raw_order_ids=created_raw_order_ids
     )
+
+
+@router.get('/drafts/{conversation_id}', summary='Thông tin nháp và bằng chứng để nhân viên kiểm tra')
+def get_facebook_conversation_draft(conversation_id: int):
+    from app.core.database import get_db
+    with get_db() as cur:
+        cur.execute("""SELECT d.conversation_id, d.order_id, d.state, d.updated_at
+                       FROM conversation_drafts d JOIN conversations c ON c.id=d.conversation_id
+                       WHERE d.conversation_id=%s AND c.channel='facebook'""", (conversation_id,))
+        draft = cur.fetchone()
+        if not draft:
+            raise HTTPException(status_code=404, detail='Không tìm thấy bản nháp hội thoại')
+        return dict(draft)
