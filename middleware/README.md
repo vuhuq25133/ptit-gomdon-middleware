@@ -105,3 +105,13 @@ python --version
 git --version
 docker --version
 ```
+
+### Facebook: bản nháp xuyên suốt hội thoại
+
+- Triển khai: chạy `python init_db.py` trước khi khởi động worker mới. Script SQL có thể chạy lại trên DB hiện có; bổ sung `conversation_drafts` và khóa chống trùng `messages.raw_order_id`.
+- Bản nháp được lưu ngay cả khi khách chưa có SĐT. Hội thoại mới dùng khóa `page_id:sender_id` để tách fanpage; đơn nháp không còn được tìm chung theo khách hàng. Định danh PSID cũ vẫn được tra cứu để khách quen không phải nhắc lại SĐT. Lịch sử hội thoại cũ không tự động nhập vào nháp mới.
+- Tin mới chỉ bổ sung trường có giá trị. Thông tin xung đột được giữ trong `state.issues`, nguồn từng trường nằm trong `state.evidence` (message ID, Bronze ID, nội dung). Không đổi liên kết khách hàng khi khách gửi SĐT khác.
+- Xem nháp để tích hợp màn hình nhân viên: `GET /inbound/facebook/drafts/{conversation_id}`. `missing_fields` cho biết dữ liệu thiếu, `issues` chứa đề xuất cần kiểm tra. Đơn Silver luôn ở `draft`, ghi chú yêu cầu nhân viên xác nhận. Endpoint này cần được bảo vệ bằng cơ chế phân quyền của hệ thống triển khai, tương tự các API quản trị hiện có; repo chưa có lớp đăng nhập nhân viên.
+- Không tự chọn SKU khi thiếu số lượng/màu/size hoặc biến thể không hỗ trợ. Những câu phức tạp, thay đổi sản phẩm, nhiều sản phẩm và thông tin sản phẩm chia nhỏ cần nhân viên diễn giải từ bằng chứng. Bản nháp giữ các tin này để kiểm tra; chưa tự suy luận mọi cách nói tự nhiên.
+- Tin nhắn, bản nháp, đơn và trạng thái Bronze commit cùng giao dịch, khóa theo hội thoại để tránh ghi đè đồng thời; retry cùng Bronze ID không tạo thêm tin/đơn. Khi đơn đã rời trạng thái `draft`, tin tiếp theo mở một chu kỳ nháp mới.
+- Kiểm tra: `python -m unittest discover -s tests -v`.

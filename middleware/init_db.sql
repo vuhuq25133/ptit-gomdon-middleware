@@ -132,3 +132,13 @@ CREATE TABLE IF NOT EXISTS sync_audit_logs (
     status VARCHAR(30) NOT NULL,                    -- success, failed, retried
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Persistent anonymous chat drafts; safe to apply to an existing installation.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS raw_order_id BIGINT REFERENCES raw_orders(id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_raw_order ON messages(raw_order_id);
+CREATE TABLE IF NOT EXISTS conversation_drafts (
+    conversation_id INT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    state JSONB NOT NULL DEFAULT '{}'::jsonb,
+    order_id INT REFERENCES orders(id),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
