@@ -11,7 +11,8 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.core.database import get_db_pool
+from app.core.database import get_db_pool, get_db
+from app.core.catalog import PRODUCT_CATALOG
 from app.core.rabbitmq_client import init_rabbitmq_topology, replay_dlq_messages
 from app.api.inbound import router as inbound_router
 
@@ -29,12 +30,66 @@ if os.path.exists(static_dir):
 # 2. Đăng ký các router tiếp nhận dữ liệu
 app.include_router(inbound_router)
 
+
+def ensure_schema_and_catalog():
+    """
+    Tự động bổ sung cột external_message_id vào bảng `messages` có sẵn
+    và nạp danh mục SKU Alan Walker Store vào bảng `sku_mappings` có sẵn
+    (cho cả 5 kênh: landing_page, facebook, zalo, shopee, tiktok).
+    KHÔNG đẻ thêm bất kỳ bảng mới nào ngoài thiết kế gốc trong init_db.sql.
+    """
+    with get_db() as cur:
+        cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS external_message_id VARCHAR(100);")
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_messages_conv_ext_id') THEN
+                    ALTER TABLE messages ADD CONSTRAINT uq_messages_conv_ext_id UNIQUE (conversation_id, external_message_id);
+                END IF;
+            END $$;
+            """
+        )
+        for sku in PRODUCT_CATALOG.keys():
+            # Nạp bảng ánh xạ sku_mappings có sẵn cho cả 5 kênh + biến thể mã sàn Shopee (SP_) & TikTok (TT_)
+            for ch in ("landing_page", "facebook", "zalo", "shopee", "tiktok"):
+                cur.execute(
+                    """
+                    INSERT INTO sku_mappings (source_channel, source_sku, standard_sku)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (source_channel, source_sku) DO UPDATE SET standard_sku = EXCLUDED.standard_sku;
+                    """,
+                    (ch, sku, sku)
+                )
+            # Bổ sung biến thể mã riêng của sàn (VD: SP_AW_HOOD_WCH_XL, TT_AW_HOOD_WCH_XL)
+            sku_underscore = sku.replace("-", "_")
+            for alias_sku in (f"SP-{sku}", f"SP_{sku_underscore}", f"SHOPEE_{sku_underscore}"):
+                cur.execute(
+                    """
+                    INSERT INTO sku_mappings (source_channel, source_sku, standard_sku)
+                    VALUES ('shopee', %s, %s)
+                    ON CONFLICT (source_channel, source_sku) DO UPDATE SET standard_sku = EXCLUDED.standard_sku;
+                    """,
+                    (alias_sku, sku)
+                )
+            for alias_sku in (f"TT-{sku}", f"TT_{sku_underscore}", f"TIKTOK_{sku_underscore}"):
+                cur.execute(
+                    """
+                    INSERT INTO sku_mappings (source_channel, source_sku, standard_sku)
+                    VALUES ('tiktok', %s, %s)
+                    ON CONFLICT (source_channel, source_sku) DO UPDATE SET standard_sku = EXCLUDED.standard_sku;
+                    """,
+                    (alias_sku, sku)
+                )
+
+
 @app.on_event("startup")
 def on_startup():
     print("[*] Đang kiểm tra và khởi tạo hạ tầng PostgreSQL Pool & RabbitMQ...")
     try:
         get_db_pool()
-        print("[+] Hồ chứa kết nối PostgreSQL (ThreadedConnectionPool) đã sẵn sàng!")
+        ensure_schema_and_catalog()
+        print(f"[+] Hồ chứa PostgreSQL & Danh mục {len(PRODUCT_CATALOG)} SKU Alan Walker Store đã sẵn sàng!")
     except Exception as e:
         print(f"[-] Cảnh báo: Chưa thể khởi tạo PostgreSQL Pool ({e})")
 

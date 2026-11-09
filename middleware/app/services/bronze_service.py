@@ -21,7 +21,23 @@ def save_to_bronze(source_channel: str, source_order_id: str, raw_payload: dict)
             (source_channel, source_order_id, json.dumps(raw_payload, ensure_ascii=False))
         )
         row = cur.fetchone()
-        return row["id"] if row else None
+        if row:
+            return row["id"]
+
+        # Nếu đã tồn tại: kiểm tra xem lần trước đã xử lý xong ('processed') hay bị kẹt ở 'pending'/'failed' (P0-1)
+        cur.execute(
+            """
+            SELECT id, process_status
+            FROM raw_orders
+            WHERE source_channel = %s AND source_order_id = %s;
+            """,
+            (source_channel, source_order_id)
+        )
+        existing = cur.fetchone()
+        if existing and existing["process_status"] != "processed":
+            # Cho phép đẩy lại vào RabbitMQ nếu lần trước chưa xử lý thành công
+            return existing["id"]
+        return None
 
 
 def update_bronze_status(raw_order_id: int, status: str, error_message: str = None):

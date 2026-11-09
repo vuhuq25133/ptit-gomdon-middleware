@@ -62,4 +62,7 @@ class Settings:
     # Nguồn 5: Kênh TikTok Shop (Sàn TMĐT Partner API - Giai đoạn 4)
     ROUTING_KEY_TIKTOK: str = "order.tiktok"
 
+    # Đích đồng bộ đơn hàng: Hệ thống quản lý kho & vận đơn ShopTrack
+    SHOPTRACK_API_URL: str = os.getenv("SHOPTRACK_API_URL", "http://127.0.0.1:8001/api/v1/orders")
+
 settings = Settings()

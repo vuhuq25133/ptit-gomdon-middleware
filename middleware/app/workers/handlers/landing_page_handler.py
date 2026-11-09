@@ -8,10 +8,11 @@ from app.services.silver_service import (
     get_or_create_customer,
     create_silver_order
 )
+from app.services.shoptrack_service import push_order_to_shoptrack
 
 
 def handle_landing_page_order(data: dict):
-    """Xử lý đơn hàng trực tiếp từ Landing Page (Đơn đủ thông tin -> status: 'processing')"""
+    """Xử lý đơn hàng trực tiếp từ Landing Page (Đơn đủ thông tin -> status: 'processing' -> Đẩy ShopTrack)"""
     raw_order_id = data["raw_order_id"]
     source_order_id = data["source_order_id"]
     cust_data = data["customer"]
@@ -29,7 +30,8 @@ def handle_landing_page_order(data: dict):
         phone=cust_data["phone"],
         full_name=cust_data["name"],
         address=cust_data["address"],
-        city=cust_data["city"]
+        city=cust_data["city"],
+        external_ref=source_order_id
     )
     print(f"   [+] Khử trùng khách hàng thành công -> Customer ID #{customer_id}")
 
@@ -50,7 +52,10 @@ def handle_landing_page_order(data: dict):
     )
     print(f"   [+] Đã lưu vào Tầng Silver (bảng orders): Mã đơn {order_code} (Status: 'processing')")
 
-    # 3. Cập nhật Tầng Bronze -> 'processed'
+    # 3. Tự động đẩy đơn đủ thông tin sang hệ thống kho vận ShopTrack & ghi sync_audit_logs
+    push_order_to_shoptrack(order_code)
+
+    # 4. Cập nhật Tầng Bronze -> 'processed'
     update_bronze_status(raw_order_id, "processed")
     print(f"   [+] Đã cập nhật Tầng Bronze (raw_orders #{raw_order_id}) -> 'processed'")
     print("=" * 70 + "\n")

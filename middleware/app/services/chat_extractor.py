@@ -10,18 +10,12 @@ Mô hình: Trợ lý bóc tách thông minh (Pre-fill Draft Order) phục vụ d
 """
 import re
 from typing import Dict, Any, List, Optional, Tuple
-
-# Danh mục SKU và sản phẩm mặc định của hệ thống
-PRODUCT_CATALOG = {
-    "POLO-BLK-L": {"name": "Áo Polo Cotton Đen - Size L", "price": 250000.0, "type": "polo", "color": "BLK", "size": "L"},
-    "POLO-BLK-M": {"name": "Áo Polo Cotton Đen - Size M", "price": 250000.0, "type": "polo", "color": "BLK", "size": "M"},
-    "POLO-WHT-L": {"name": "Áo Polo Cotton Trắng - Size L", "price": 250000.0, "type": "polo", "color": "WHT", "size": "L"},
-    "POLO-WHT-M": {"name": "Áo Polo Cotton Trắng - Size M", "price": 250000.0, "type": "polo", "color": "WHT", "size": "M"},
-    "POLO-NVY-XL": {"name": "Áo Polo Cotton Navy - Size XL", "price": 250000.0, "type": "polo", "color": "NVY", "size": "XL"},
-    "JEAN-BLU-31": {"name": "Quần Bò Nam Xanh - Size 31", "price": 350000.0, "type": "jean", "color": "BLU", "size": "31"},
-    "JEAN-BLU-30": {"name": "Quần Bò Nam Xanh - Size 30", "price": 350000.0, "type": "jean", "color": "BLU", "size": "30"},
-    "JEAN-BLU-32": {"name": "Quần Bò Nam Xanh - Size 32", "price": 350000.0, "type": "jean", "color": "BLU", "size": "32"},
-}
+from app.core.catalog import (
+    PRODUCT_CATALOG,
+    BASE_PRODUCTS,
+    DEFAULT_MODEL_BY_CATEGORY,
+    SIZES,
+)
 
 # Danh sách từ điển 34 tỉnh/thành phố sau sáp nhập (Nghị quyết 202/2025/QH15)
 PROVINCES = [
@@ -76,8 +70,8 @@ def extract_phone(text: str) -> Optional[str]:
     if not text:
         return None
 
-    # Pattern bao quát các biến thể dấu cách, chấm, gạch
-    pattern = r"(?:(?:\+84|84|0)[35789])(?:[\s.-]?\d){8}\b"
+    # Pattern bao quát các biến thể dấu cách, chấm, gạch (kể cả khoảng trắng sau +84)
+    pattern = r"(?:(?:\+84|84|0)[\s.-]?[35789])(?:[\s.-]?\d){8}\b"
     matches = re.findall(pattern, text)
 
     if not matches:
@@ -167,79 +161,179 @@ def extract_address(text: str, detected_phone: Optional[str] = None) -> Tuple[Op
     return extracted, city
 
 
-def extract_items(text: str) -> List[Dict[str, Any]]:
-    """
-    Bóc tách sản phẩm, màu sắc, size, số lượng và quy đổi sang SKU hệ thống.
-    """
+# Các cụm từ phủ định / hủy đặt hàng
+CANCEL_PATTERNS = [
+    r"\b(?:không|khong|ko|k)\s+(?:mua|lấy|lay|đặt|dat|chốt|chot)\b",
+    r"\b(?:hủy|huy)\s*(?:đơn|don|hàng|hang)?\b",
+    r"\bthôi\s+(?:không|khong|ko)\b",
+]
+
+
+def is_cancel_or_negative_intent(text: str) -> bool:
+    """Kiểm tra xem câu chat có mang ý định hủy đơn / từ chối mua hay không"""
     if not text:
-        return []
-
+        return False
     text_lower = text.lower()
+    return any(re.search(pat, text_lower) for pat in CANCEL_PATTERNS)
 
-    # 1. Bóc tách số lượng (mặc định là 1)
-    quantity = 1
-    qty_match = re.search(r"(\d+)\s*(?:áo|cái|chiếc|quần|bộ|đôi|hộp|sp)\b", text_lower)
+
+def _extract_size_from_clause(clause_lower: str, default_size: str = "L") -> str:
+    """Bóc tách size chuẩn S, M, L, XL, XXL từ mệnh đề"""
+    size_match = re.search(r"\b(?:size|sz|cỡ|co)?\s*(xxl|2xl|xl|s|m|l)\b", clause_lower)
+    if size_match:
+        # Ưu tiên bắt trường hợp có chữ 'size/sz' đứng trước hoặc đứng độc lập cuối mệnh đề
+        explicit = re.search(r"\b(?:size|sz|cỡ|co)\s*(xxl|2xl|xl|s|m|l)\b", clause_lower)
+        raw_sz = (explicit.group(1) if explicit else size_match.group(1)).upper()
+        if raw_sz == "2XL":
+            return "XXL"
+        if raw_sz in SIZES:
+            return raw_sz
+    return default_size
+
+
+def _extract_quantity_from_clause(clause_lower: str) -> int:
+    """Bóc tách số lượng sản phẩm trong 1 mệnh đề"""
+    # Loại bỏ tạm phần size/sđt/địa chỉ để không bắt nhầm số nhà hoặc mã áo (8, 0, 97, 98) làm số lượng
+    cleaned = re.sub(r"\b(?:size|sz|cỡ|co)\s*(?:xxl|2xl|xl|s|m|l|30|31|32)\b", "", clause_lower)
+    cleaned = re.sub(r"(?:(?:\+84|84|0)[35789])(?:[\s.-]?\d){8}\b", "", cleaned)
+
+    qty_match = re.search(
+        r"\b(\d{1,2})\s*(?:áo|ao|cái|cai|chiếc|chiec|quần|quan|bộ|bo|hộp|sp|mẫu|mau|hoodie|shirt|tee|jersey|jacket|longsleeve|windbreaker)\b",
+        cleaned,
+    )
     if qty_match:
-        try:
-            quantity = max(1, int(qty_match.group(1)))
-        except ValueError:
-            quantity = 1
-    else:
-        # Kiểm tra từ khóa: đặt 1, lấy 2, mua 1...
-        qty_action = re.search(r"(?:đặt|lấy|mua|ship)\s+(\d+)\b", text_lower)
-        if qty_action:
-            try:
-                quantity = max(1, int(qty_action.group(1)))
-            except ValueError:
-                quantity = 1
+        return max(1, int(qty_match.group(1)))
 
-    # 2. Phân loại ngành hàng: Quần bò / Jean hay Áo Polo
-    if any(k in text_lower for k in ["quần bò", "quan bo", "quần jean", "quan jean", "jean", "bò"]):
-        # Bóc size quần: 29, 30, 31, 32...
-        size_match = re.search(r"(?:size|sz|số)\s*(2[8-9]|3[0-6])\b", text_lower)
-        size = size_match.group(1) if size_match else "31"
+    qty_action = re.search(
+        r"(?:đặt|dat|lấy|lay|mua|ship|cho|thêm|them)\s+(?:(?:mình|minh|em|anh|chị|chi|shop)\s+)?(\d{1,2})\b",
+        cleaned,
+    )
+    if qty_action:
+        return max(1, int(qty_action.group(1)))
 
-        sku = f"JEAN-BLU-{size}"
-        if sku not in PRODUCT_CATALOG:
-            sku = "JEAN-BLU-31"
+    # Bắt số lượng đứng ngay đầu mệnh đề (VD: "2 Walker Core Hoodie size XL")
+    leading_qty = re.match(r"^\s*(\d{1,2})\s+(?!(?:size|sz|sđt|sdt)\b)[a-zA-ZÀ-ỹ\"]", cleaned)
+    if leading_qty:
+        val = int(leading_qty.group(1))
+        if 1 <= val <= 50:
+            return val
+    return 1
 
-        product_meta = PRODUCT_CATALOG[sku]
-        return [{
+
+def _extract_single_clause_item(clause: str) -> Optional[Dict[str, Any]]:
+    """Bóc tách 1 dòng sản phẩm từ 1 mệnh đề con"""
+    clause_lower = clause.lower().strip()
+    if not clause_lower or is_cancel_or_negative_intent(clause_lower):
+        return None
+
+    quantity = _extract_quantity_from_clause(clause_lower)
+    size = _extract_size_from_clause(clause_lower, default_size="L")
+
+    # 1. Kiểm tra nếu khách gõ trực tiếp mã SKU hoặc mã dòng Alan Walker (VD: AW-HOOD-WCH-XL hoặc AW-HOOD-WCH)
+    sku_direct = re.search(r"\b(AW-[A-Z0-9]+-[A-Z0-9]+(?:-(?:XXL|XL|S|M|L))?)\b", clause.upper())
+    if sku_direct:
+        raw_code = sku_direct.group(1)
+        if raw_code in PRODUCT_CATALOG:
+            meta = PRODUCT_CATALOG[raw_code]
+            return {"sku": raw_code, "name": meta["name"], "quantity": quantity, "price": meta["price"], "unit_price": meta["price"]}
+        full_sku = f"{raw_code}-{size}"
+        if full_sku in PRODUCT_CATALOG:
+            meta = PRODUCT_CATALOG[full_sku]
+            return {"sku": full_sku, "name": meta["name"], "quantity": quantity, "price": meta["price"], "unit_price": meta["price"]}
+
+    # 2. So khớp từ khóa của 58 mẫu áo Alan Walker Store (ưu tiên cụm từ khóa dài & cụ thể nhất)
+    best_base = None
+    best_kw_len = 0
+    for base in BASE_PRODUCTS:
+        all_kws = [base["name"].lower().replace('"', "")] + [k.lower() for k in base.get("keywords", [])]
+        for kw in all_kws:
+            if kw in clause_lower and len(kw) > best_kw_len:
+                best_base = base
+                best_kw_len = len(kw)
+
+    if best_base:
+        sku = f"{best_base['code']}-{size}"
+        meta = PRODUCT_CATALOG[sku]
+        return {
             "sku": sku,
-            "name": product_meta["name"],
+            "name": meta["name"],
             "quantity": quantity,
-            "unit_price": product_meta["price"]
-        }]
+            "price": meta["price"],
+            "unit_price": meta["price"],
+        }
 
-    if any(k in text_lower for k in ["áo polo", "ao polo", "polo", "áo", "ao"]):
-        # Bóc size áo: S, M, L, XL, XXL
-        size_match = re.search(r"\b(?:size|sz)\s*(s|m|l|xl|xxl|2xl)\b", text_lower)
-        size = size_match.group(1).upper() if size_match else "L"
-        if size == "2XL":
-            size = "XL"
+    # 3. So khớp theo 4 nhóm áo Alan Walker chung (hoodie, longsleeve, jacket, shirt/jersey/tee)
+    if any(k in clause_lower for k in ["hoodie", "áo nỉ", "ao ni", "áo mũ", "ao mu"]):
+        base_code = DEFAULT_MODEL_BY_CATEGORY["hoodie"]
+        sku = f"{base_code}-{size}"
+        meta = PRODUCT_CATALOG[sku]
+        return {"sku": sku, "name": meta["name"], "quantity": quantity, "price": meta["price"], "unit_price": meta["price"]}
 
-        # Bóc màu sắc: đen, trắng, navy
+    if any(k in clause_lower for k in ["longsleeve", "long sleeve", "dài tay", "dai tay", "tay dài", "tay dai"]):
+        base_code = DEFAULT_MODEL_BY_CATEGORY["longsleeve"]
+        sku = f"{base_code}-{size}"
+        meta = PRODUCT_CATALOG[sku]
+        return {"sku": sku, "name": meta["name"], "quantity": quantity, "price": meta["price"], "unit_price": meta["price"]}
+
+    if any(k in clause_lower for k in ["jacket", "windbreaker", "áo khoác", "ao khoac", "áo gió", "ao gio"]):
+        base_code = DEFAULT_MODEL_BY_CATEGORY["jacket"]
+        sku = f"{base_code}-{size}"
+        meta = PRODUCT_CATALOG[sku]
+        return {"sku": sku, "name": meta["name"], "quantity": quantity, "price": meta["price"], "unit_price": meta["price"]}
+
+    if any(k in clause_lower for k in ["t-shirt", "tshirt", "tee", "jersey", "áo thun", "ao thun", "áo phông", "ao phong", "shirt"]):
+        base_code = DEFAULT_MODEL_BY_CATEGORY["shirt"]
+        sku = f"{base_code}-{size}"
+        meta = PRODUCT_CATALOG[sku]
+        return {"sku": sku, "name": meta["name"], "quantity": quantity, "price": meta["price"], "unit_price": meta["price"]}
+
+    # 4. Giữ tương thích với Quần bò / Jean & Áo Polo truyền thống
+    if any(k in clause_lower for k in ["quần bò", "quan bo", "quần jean", "quan jean", "jean", "bò"]):
+        size_match = re.search(r"(?:size|sz|số)?\s*(30|31|32)\b", clause_lower)
+        j_size = size_match.group(1) if size_match else "31"
+        sku = f"JEAN-BLU-{j_size}"
+        meta = PRODUCT_CATALOG[sku]
+        return {"sku": sku, "name": meta["name"], "quantity": quantity, "price": meta["price"], "unit_price": meta["price"]}
+
+    if any(k in clause_lower for k in ["áo polo", "ao polo", "polo", "áo", "ao"]):
         color = "BLK"
-        if any(w in text_lower for w in ["trắng", "trang", "white"]):
+        if any(w in clause_lower for w in ["trắng", "trang", "white"]):
             color = "WHT"
-        elif any(w in text_lower for w in ["navy", "xanh navy", "xanh than", "xanh"]):
+        elif any(w in clause_lower for w in ["navy", "xanh navy", "xanh than", "xanh"]):
             color = "NVY"
-
         sku = f"POLO-{color}-{size}"
         if sku not in PRODUCT_CATALOG:
-            # Fallback về SKU phổ thông
-            sku = f"POLO-{color}-L" if f"POLO-{color}-L" in PRODUCT_CATALOG else "POLO-BLK-L"
+            sku = f"POLO-{color}-L"
+        meta = PRODUCT_CATALOG[sku]
+        return {"sku": sku, "name": meta["name"], "quantity": quantity, "price": meta["price"], "unit_price": meta["price"]}
 
-        product_meta = PRODUCT_CATALOG.get(sku, PRODUCT_CATALOG["POLO-BLK-L"])
-        return [{
-            "sku": sku,
-            "name": product_meta["name"],
-            "quantity": quantity,
-            "unit_price": product_meta["price"]
-        }]
+    return None
 
-    # Trường hợp không phát hiện được sản phẩm cụ thể
-    return []
+
+def extract_items(text: str) -> List[Dict[str, Any]]:
+    """
+    Bóc tách danh sách sản phẩm (hỗ trợ nhiều mặt hàng trong 1 câu chat),
+    phân biệt đủ 4 dòng Alan Walker (shirt, hoodie, longsleeve, jacket) + 5 size S..XXL,
+    và tự động chặn câu phủ định / hủy đơn.
+    """
+    if not text or is_cancel_or_negative_intent(text):
+        return []
+
+    # Tách câu theo các liên từ nối sản phẩm: "và", "với", "kèm", "+", ";"
+    clauses = re.split(r"\s+(?:và|va|với|voi|kèm|kem|\+)\s+|;|\n", text)
+    extracted_list: List[Dict[str, Any]] = []
+
+    for clause in clauses:
+        item = _extract_single_clause_item(clause)
+        if item:
+            # Nếu trùng SKU trong cùng câu thì cộng dồn số lượng
+            existing = next((x for x in extracted_list if x["sku"] == item["sku"]), None)
+            if existing:
+                existing["quantity"] += item["quantity"]
+            else:
+                extracted_list.append(item)
+
+    return extracted_list
 
 
 def extract_order_from_text(text: str) -> Dict[str, Any]:
@@ -256,24 +350,39 @@ def extract_order_from_text(text: str) -> Dict[str, Any]:
             "items": [],
             "total_amount": 0.0,
             "confidence_score": 0.0,
+            "intent": "empty",
             "note": "Tin nhắn rỗng"
+        }
+
+    # Nếu khách nhắn hủy đơn / không mua nữa -> Tuyệt đối không sinh đơn nháp
+    if is_cancel_or_negative_intent(text):
+        return {
+            "has_phone": False,
+            "phone": None,
+            "shipping_address": None,
+            "shipping_city": None,
+            "items": [],
+            "total_amount": 0.0,
+            "confidence_score": 0.0,
+            "intent": "cancel",
+            "note": "Khách báo hủy hoặc từ chối mua hàng"
         }
 
     phone = extract_phone(text)
     address, city = extract_address(text, detected_phone=phone)
     items = extract_items(text)
 
-    # Tính tổng tiền
+    # Tính tổng tiền chuẩn từ danh sách items
     total_amount = sum(item["unit_price"] * item["quantity"] for item in items)
 
-    # Đánh giá độ tin cậy của thuật toán (Confidence Score)
+    # Điểm hoàn thiện thông tin (Completeness / Confidence Score)
     confidence = 0.0
     if phone:
-        confidence += 0.5  # Bắt được SĐT đóng góp 50% độ tin cậy
+        confidence += 0.5  # Có SĐT: +50%
     if address:
-        confidence += 0.3  # Bắt được địa chỉ đóng góp 30%
+        confidence += 0.3  # Có địa chỉ: +30%
     if items:
-        confidence += 0.2  # Bắt được sản phẩm đóng góp 20%
+        confidence += 0.2  # Có sản phẩm: +20%
 
     return {
         "has_phone": bool(phone),
@@ -283,5 +392,6 @@ def extract_order_from_text(text: str) -> Dict[str, Any]:
         "items": items,
         "total_amount": total_amount,
         "confidence_score": round(confidence, 2),
+        "intent": "order" if (phone or items) else "chat",
         "note": "Trích xuất tự động từ câu chat khách hàng"
     }

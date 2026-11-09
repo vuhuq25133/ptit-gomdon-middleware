@@ -97,8 +97,11 @@ CREATE TABLE IF NOT EXISTS messages (
     sender_type VARCHAR(20) NOT NULL,               -- customer, shop
     content TEXT,
     has_extracted_order BOOLEAN DEFAULT FALSE,      -- Đã trích xuất thành đơn nháp chưa
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    external_message_id VARCHAR(100),               -- ID tin nhắn gốc từ Facebook/Zalo chống lưu trùng khi retry
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT uq_messages_conv_ext_id UNIQUE (conversation_id, external_message_id)
 );
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS external_message_id VARCHAR(100);
 
 -- 5. CẤU HÌNH HỆ THỐNG & NHẬT KÝ ĐỒNG BỘ (AUDIT LOGS)
 -- Ánh xạ mã sản phẩm đa sàn (Shopee/TikTok SKU -> Chuẩn ShopTrack)

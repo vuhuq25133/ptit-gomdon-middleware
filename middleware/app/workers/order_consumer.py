@@ -27,11 +27,14 @@ from app.services.bronze_service import update_bronze_status
 # Import các handlers chuyên biệt theo từng kênh
 from app.workers.handlers.landing_page_handler import handle_landing_page_order
 from app.workers.handlers.facebook_handler import handle_facebook_message
+from app.workers.handlers.marketplace_handler import handle_marketplace_order
 
 # Bản đồ đăng ký các bộ xử lý theo kênh bán (Registry Pattern)
 CHANNEL_HANDLERS = {
     "landing_page": handle_landing_page_order,
     "facebook": handle_facebook_message,
+    "shopee": handle_marketplace_order,
+    "tiktok": handle_marketplace_order,
 }
 
 # Cấu hình Retry theo cấp số nhân (Exponential Backoff: 2^0=1s, 2^1=2s, 2^2=4s)
@@ -87,7 +90,8 @@ def process_order_message(ch, method, properties, body):
                         # Đã hết toàn bộ số lần thử lại (1s -> 2s -> 4s), ném lỗi ra ngoài để chuyển vào DLQ
                         raise handler_err
         else:
-            print(f"[-] Kênh chưa được hỗ trợ: {source_channel}")
+            # Kênh chưa đăng ký trong CHANNEL_HANDLERS -> Ném lỗi để đẩy vào DLQ, tuyệt đối không ACK làm mất đơn!
+            raise ValueError(f"Kênh chưa được hỗ trợ trong CHANNEL_HANDLERS: {source_channel}")
 
         # Xác nhận tin nhắn đã xử lý thành công (ACK) để RabbitMQ xóa khỏi hàng đợi chính
         ch.basic_ack(delivery_tag=method.delivery_tag)
