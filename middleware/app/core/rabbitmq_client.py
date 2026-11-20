@@ -9,13 +9,14 @@ _publisher_ch = None
 _publisher_lock = threading.Lock()
 
 
-def get_rabbitmq_connection():
+def get_rabbitmq_connection(*, blocked_connection_timeout: float | None = None):
     creds = pika.PlainCredentials(settings.RABBITMQ_USER, settings.RABBITMQ_PASSWORD)
     params = pika.ConnectionParameters(
         host=settings.RABBITMQ_HOST,
         port=settings.RABBITMQ_PORT,
         credentials=creds,
-        heartbeat=600
+        heartbeat=600,
+        blocked_connection_timeout=blocked_connection_timeout,
     )
     return pika.BlockingConnection(params)
 
@@ -107,7 +108,7 @@ def init_rabbitmq_topology():
         get_publisher_channel()
 
 
-def publish_order_event(routing_key: str, message_dict: dict) -> bool:
+def publish_order_event(routing_key: str, message_dict: dict, *, confirm_delivery: bool = False) -> bool:
     """
     Publish thông điệp đơn hàng vào RabbitMQ Exchange qua kết nối đang mở sẵn
     (Persistent Publisher Channel), giảm thời gian gửi từ ~100ms xuống <2ms.
@@ -118,6 +119,19 @@ def publish_order_event(routing_key: str, message_dict: dict) -> bool:
         delivery_mode=pika.DeliveryMode.Persistent,  # Đảm bảo tin nhắn lưu vào đĩa (durable)
         content_type="application/json"
     )
+
+    if confirm_delivery:
+        with get_rabbitmq_connection(blocked_connection_timeout=5) as conn:
+            ch = conn.channel()
+            ch.confirm_delivery()
+            ch.basic_publish(
+                exchange=settings.EXCHANGE_NAME,
+                routing_key=routing_key,
+                body=body,
+                properties=properties,
+                mandatory=True,
+            )
+        return True
 
     with _publisher_lock:
         try:

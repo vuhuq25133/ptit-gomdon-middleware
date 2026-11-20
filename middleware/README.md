@@ -115,3 +115,26 @@ docker --version
 - Không tự chọn SKU khi thiếu số lượng/màu/size hoặc biến thể không hỗ trợ. Những câu phức tạp, thay đổi sản phẩm, nhiều sản phẩm và thông tin sản phẩm chia nhỏ cần nhân viên diễn giải từ bằng chứng. Bản nháp giữ các tin này để kiểm tra; chưa tự suy luận mọi cách nói tự nhiên.
 - Tin nhắn, bản nháp, đơn và trạng thái Bronze commit cùng giao dịch, khóa theo hội thoại để tránh ghi đè đồng thời; retry cùng Bronze ID không tạo thêm tin/đơn. Khi đơn đã rời trạng thái `draft`, tin tiếp theo mở một chu kỳ nháp mới.
 - Kiểm tra: `python -m unittest discover -s tests -v`.
+
+### Shopee tự động chốt và đồng bộ đơn
+
+Gateway nhận chi tiết đơn đã chuẩn hóa tại `POST /inbound/shopee/webhook`. Hợp đồng request dựa trên `tests/mock_data/shopee_order_webhook.json`. Khi kết nối Shopee Open Platform, adapter nhận push cần lấy chi tiết đơn và chuyển về hợp đồng này. Cấu hình `SHOPEE_WEBHOOK_TOKEN` trong `.env` và gửi cùng header `X-Shopee-Webhook-Token`.
+
+Chỉ đơn `READY_TO_SHIP` được lưu vào Bronze và đưa qua RabbitMQ. Worker ưu tiên `model_sku` của biến thể rồi dùng `item_sku` khi biến thể không có mã. Mỗi SKU nguồn cần có mã kho thật trong `sku_mappings`. Ví dụ ánh xạ cho đơn demo:
+
+```sql
+INSERT INTO sku_mappings (source_channel, source_sku, standard_sku)
+VALUES ('shopee', 'SP-AO-DEN-L', 'POLO-BLK-L')
+ON CONFLICT (source_channel, source_sku) DO NOTHING;
+```
+
+Sau khi khởi động Docker, Gateway, Worker và `mock_shoptrack.py`, gửi JSON mẫu từ thư mục `middleware`:
+
+```powershell
+$shopeeHeaders = @{ 'X-Shopee-Webhook-Token' = '<token đã đặt trong .env>' }
+Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8000/inbound/shopee/webhook' `
+  -Headers $shopeeHeaders -ContentType 'application/json' `
+  -InFile '.\tests\mock_data\shopee_order_webhook.json'
+```
+
+Worker lưu đơn Silver ở `processing`, tự gửi sang `SHOPTRACK_API_BASE_URL` và chuyển sang `pushed_to_shoptrack` khi đối tác trả mã đơn. Kết quả từng lần gửi nằm trong `sync_audit_logs`. Kiểm tra đơn demo ở `GET http://127.0.0.1:8001/api/v1/orders`. Gửi lại cùng `shop_id` và `order_sn` sẽ trả `duplicate` sau khi RabbitMQ đã nhận đơn. Đơn thiếu ánh xạ hoặc gặp lỗi đồng bộ được Worker thử lại, sau đó đưa vào DLQ. Có thể dùng `POST /admin/dlq/replay` sau khi xử lý nguyên nhân.

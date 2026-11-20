@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
 from datetime import datetime
+from threading import Lock
 
 mock_app = FastAPI(
     title="ShopTrack Partner Mock API Server",
@@ -18,7 +19,8 @@ mock_app = FastAPI(
 
 # Lưu trữ bộ nhớ tạm mô phỏng DB của ShopTrack
 DB_ORDERS = {}
-SEEN_IDEMPOTENCY_KEYS = set()
+IDEMPOTENCY_ORDERS = {}
+ORDERS_LOCK = Lock()
 
 class OrderItem(BaseModel):
     sku: str
@@ -28,6 +30,7 @@ class OrderItem(BaseModel):
 class CreateOrderPayload(BaseModel):
     source_channel: str
     source_order_id: str
+    source_metadata: dict | None = None
     customer_name: str
     customer_phone: str
     shipping_address: str
@@ -49,24 +52,29 @@ def create_order(
     payload: CreateOrderPayload, 
     idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key")
 ):
-    # 1. Kiểm tra chống đẩy trùng đơn (Idempotency)
-    if idempotency_key:
-        if idempotency_key in SEEN_IDEMPOTENCY_KEYS:
+    with ORDERS_LOCK:
+        existing_id = IDEMPOTENCY_ORDERS.get(idempotency_key)
+        if existing_id is not None:
             return {
                 "status": "duplicate_prevented",
                 "message": "Đơn hàng đã được ghi nhận trước đó với khóa Idempotency này",
-                "order_id": f"ST_EXISTING_{payload.source_order_id}"
+                "order_id": existing_id,
+                "tracking_code": f"VNPOST_{existing_id}",
+                "created_at": DB_ORDERS[existing_id]["received_at"],
             }
-        SEEN_IDEMPOTENCY_KEYS.add(idempotency_key)
 
-    # 2. Tạo đơn mới trên ShopTrack
-    shoptrack_order_id = f"ST_{len(DB_ORDERS) + 1:05d}"
-    record = {
-        "shoptrack_order_id": shoptrack_order_id,
-        "received_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "payload": payload.model_dump()
-    }
-    DB_ORDERS[shoptrack_order_id] = record
+        shoptrack_order_id = f"ST_{len(DB_ORDERS) + 1:05d}"
+        order_payload = payload.model_dump()
+        if payload.source_metadata is None:
+            order_payload.pop("source_metadata")
+        record = {
+            "shoptrack_order_id": shoptrack_order_id,
+            "received_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "payload": order_payload,
+        }
+        DB_ORDERS[shoptrack_order_id] = record
+        if idempotency_key:
+            IDEMPOTENCY_ORDERS[idempotency_key] = shoptrack_order_id
 
     print("\n" + "="*70)
     print(f"[SHOPTRACK MOCK] NHAN DON HANG MOI THANH CONG")
@@ -87,10 +95,8 @@ def create_order(
 
 @mock_app.get("/api/v1/orders")
 def list_orders():
-    return {
-        "total_orders": len(DB_ORDERS),
-        "orders": list(DB_ORDERS.values())
-    }
+    with ORDERS_LOCK:
+        return {"total_orders": len(DB_ORDERS), "orders": list(DB_ORDERS.values())}
 
 if __name__ == "__main__":
     print("[*] Dang khoi dong ShopTrack Mock Server tai cong 8001...")

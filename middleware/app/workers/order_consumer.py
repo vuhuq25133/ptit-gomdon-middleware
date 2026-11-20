@@ -7,6 +7,7 @@ Hoạt động như một Bộ điều phối (Dispatcher / Router) độc lập
 - Phân luồng sang Handler tương ứng theo `source_channel`:
     + 'landing_page' -> handle_landing_page_order
     + 'facebook'     -> handle_facebook_message
+    + 'shopee'       -> handle_shopee_order
     + 'zalo'         -> handle_zalo_message (khi tích hợp)
 - Quản lý cơ chế xác nhận (ACK/NACK) và cập nhật trạng thái lỗi ở tầng Bronze.
 """
@@ -27,11 +28,13 @@ from app.services.bronze_service import update_bronze_status
 # Import các handlers chuyên biệt theo từng kênh
 from app.workers.handlers.landing_page_handler import handle_landing_page_order
 from app.workers.handlers.facebook_handler import handle_facebook_message
+from app.workers.handlers.shopee_handler import handle_shopee_order
 
 # Bản đồ đăng ký các bộ xử lý theo kênh bán (Registry Pattern)
 CHANNEL_HANDLERS = {
     "landing_page": handle_landing_page_order,
     "facebook": handle_facebook_message,
+    "shopee": handle_shopee_order,
 }
 
 # Cấu hình Retry theo cấp số nhân (Exponential Backoff: 2^0=1s, 2^1=2s, 2^2=4s)

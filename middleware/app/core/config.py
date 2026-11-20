@@ -17,6 +17,7 @@ class Settings:
     APP_NAME: str = os.getenv("APP_NAME", "Gom Đơn Đa Nền Tảng")
     APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"
+    SHOPTRACK_API_BASE_URL: str = os.getenv("SHOPTRACK_API_BASE_URL", "http://127.0.0.1:8001/api/v1")
 
     # PostgreSQL
     POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "127.0.0.1")
@@ -58,6 +59,7 @@ class Settings:
 
     # Nguồn 4: Kênh Shopee (Sàn TMĐT Open API - Giai đoạn 4)
     ROUTING_KEY_SHOPEE: str = "order.shopee"
+    SHOPEE_WEBHOOK_TOKEN: str = os.getenv("SHOPEE_WEBHOOK_TOKEN", "")
 
     # Nguồn 5: Kênh TikTok Shop (Sàn TMĐT Partner API - Giai đoạn 4)
     ROUTING_KEY_TIKTOK: str = "order.tiktok"
